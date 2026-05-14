@@ -1,101 +1,212 @@
-import Image from "next/image";
+'use client';
+
+import { useState, useEffect } from 'react';
+import { Sidebar } from '@/components/Sidebar';
+import { VisionPortal } from '@/components/VisionPortal';
+import { VocabularyCard, VocabularyItem } from '@/components/VocabularyCard';
+import TutorChat from '@/components/TutorChat';
+import { Sparkles } from 'lucide-react';
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+  const [language, setLanguage] = useState('ja');
+  const [totalWordsLearned, setTotalWordsLearned] = useState(0);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [vocabularyItems, setVocabularyItems] = useState<VocabularyItem[]>([]);
+  const [currentScanItems, setCurrentScanItems] = useState<VocabularyItem[]>([]);
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  // Load progress from local storage on mount
+  useEffect(() => {
+    const savedProgress = localStorage.getItem('vibeLingoProgress');
+    if (savedProgress) {
+      setTotalWordsLearned(parseInt(savedProgress, 10));
+    }
+  }, []);
+
+  const handleLanguageChange = async (lang: string) => {
+    if (lang === language) return;
+    
+    setLanguage(lang);
+    setError(null);
+
+    if (vocabularyItems.length > 0) {
+      setIsAnalyzing(true);
+      try {
+        const words = vocabularyItems.map(item => item.translation);
+        const response = await fetch('/api/translate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ words, language: lang }),
+        });
+
+        if (response.status === 429) {
+          throw new Error('Whoops! Kecepatan menerjemahkanmu terlalu tinggi. Tunggu 5-10 detik sebelum mengganti bahasa lagi (Batas API Gratis).');
+        }
+        if (!response.ok) {
+          let errMessage = 'Failed to translate words';
+          try {
+            const errData = await response.json();
+            errMessage = errData.error?.message || errData.error || errMessage;
+          } catch (e) {}
+          throw new Error(typeof errMessage === 'string' ? errMessage : JSON.stringify(errMessage));
+        }
+
+        const data = await response.json();
+        if (data.items && Array.isArray(data.items)) {
+          // Keep the 'box' coordinates from old items for the new items if they match by English translation
+          const translatedItems = data.items.map((newItem: VocabularyItem) => {
+            const oldItem = vocabularyItems.find(v => v.translation === newItem.translation);
+            return {
+              ...newItem,
+              box: oldItem?.box
+            };
+          });
+
+          setVocabularyItems(translatedItems);
+          
+          // Also update currentScanItems to keep boxes in sync
+          if (currentScanItems.length > 0) {
+             const translatedCurrent = currentScanItems.map((curr) => {
+                 const translated = translatedItems.find((t: VocabularyItem) => t.translation === curr.translation);
+                 return translated || curr;
+             });
+             setCurrentScanItems(translatedCurrent);
+          }
+        } else {
+          throw new Error('Invalid response format');
+        }
+      } catch (err: any) {
+        console.error(err);
+        setError(err.message || 'Failed to translate. Please try again.');
+        // Don't clear on translation error, just show error
+      } finally {
+        setIsAnalyzing(false);
+      }
+    }
+  };
+
+  const handleCapture = async (imageSrc: string) => {
+    setIsAnalyzing(true);
+    setError(null);
+    setCapturedImage(imageSrc);
+    setCurrentScanItems([]);
+
+    try {
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ image: imageSrc, language }),
+      });
+
+      if (response.status === 429) {
+        throw new Error('Whoops! Sistem sedang sibuk. Tunggu 5-10 detik sebelum memindai foto lagi (Batas API Gratis).');
+      }
+      if (!response.ok) {
+        let errMessage = 'Failed to analyze image';
+        try {
+          const errData = await response.json();
+          errMessage = errData.error?.message || errData.error || errMessage;
+        } catch (e) {
+          // ignore parsing error
+        }
+        throw new Error(typeof errMessage === 'string' ? errMessage : JSON.stringify(errMessage));
+      }
+
+      const data = await response.json();
+      
+      if (data.items && Array.isArray(data.items)) {
+        // Filter out duplicate objects
+        const uniqueItems: VocabularyItem[] = [];
+        data.items.forEach((item: VocabularyItem) => {
+          if (!uniqueItems.find(existing => existing.translation.toLowerCase() === item.translation.toLowerCase())) {
+            uniqueItems.push(item);
+          }
+        });
+
+        setCurrentScanItems(uniqueItems);
+        setVocabularyItems(uniqueItems); // Hanya tampilkan kotak/kartu unik dari foto saat ini
+        
+        // Update skor kata yang dipelajari (tambahkan dengan jumlah benda yang baru dideteksi)
+        setTotalWordsLearned((prev) => {
+          const newTotal = prev + uniqueItems.length;
+          localStorage.setItem('vibeLingoProgress', newTotal.toString());
+          return newTotal;
+        });
+      } else {
+        throw new Error('Invalid response format');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Failed to analyze the image. Please try again.');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handleReset = () => {
+    setCapturedImage(null);
+    setCurrentScanItems([]);
+    setError(null);
+  };
+
+  return (
+    <main className="flex min-h-screen p-4 md:p-8 gap-8 flex-col md:flex-row">
+      <div className="w-full md:w-64 flex-shrink-0">
+        <Sidebar 
+          language={language} 
+          onLanguageChange={handleLanguageChange} 
+          totalWordsLearned={totalWordsLearned} 
+        />
+      </div>
+
+      <div className="flex-1 flex flex-col gap-8 max-w-5xl mx-auto w-full">
+        <div className="h-[400px] md:h-[500px] w-full shrink-0">
+          <VisionPortal 
+            onCapture={handleCapture} 
+            isAnalyzing={isAnalyzing} 
+            capturedImage={capturedImage}
+            currentScanItems={currentScanItems}
+            onReset={handleReset}
+          />
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+
+        <div className="flex-1 min-h-[300px]">
+          {error && (
+            <div className="glass-card p-6 bg-red-500/10 border-red-500/30 text-red-200 mb-6">
+              {error}
+            </div>
+          )}
+
+          {vocabularyItems.length === 0 && !isAnalyzing && (
+            <div className="h-full flex flex-col items-center justify-center text-gray-400 glass-card p-12 text-center">
+              <Sparkles size={48} className="mb-4 text-violet opacity-50" />
+              <h3 className="text-xl font-medium text-gray-300 mb-2">Awaiting Visual Input</h3>
+              <p>Capture or upload an image to discover vocabulary in your environment.</p>
+            </div>
+          )}
+
+          {vocabularyItems.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {vocabularyItems.map((item, index) => (
+                <VocabularyCard 
+                  key={`${item.translation}-${index}`} 
+                  item={item} 
+                  language={language} 
+                  index={index} 
+                />
+              ))}
+            </div>
+          )}
+        </div>
+        
+        {/* Vibe Tutor Chatbot */}
+        <TutorChat language={language} vocabularyItems={vocabularyItems} />
+      </div>
+    </main>
   );
 }
