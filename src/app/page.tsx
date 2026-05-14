@@ -7,22 +7,18 @@ import { VocabularyCard, VocabularyItem } from '@/components/VocabularyCard';
 import TutorChat from '@/components/TutorChat';
 import { Sparkles } from 'lucide-react';
 
+import { useAstroProgress } from '@/hooks/useAstroProgress';
+
 export default function Home() {
   const [language, setLanguage] = useState('ja');
-  const [totalWordsLearned, setTotalWordsLearned] = useState(0);
+  const { totalWordsLearned, addProgress } = useAstroProgress();
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [vocabularyItems, setVocabularyItems] = useState<VocabularyItem[]>([]);
   const [currentScanItems, setCurrentScanItems] = useState<VocabularyItem[]>([]);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Load progress from local storage on mount
-  useEffect(() => {
-    const savedProgress = localStorage.getItem('vibeLingoProgress');
-    if (savedProgress) {
-      setTotalWordsLearned(parseInt(savedProgress, 10));
-    }
-  }, []);
+  // Removed manual local storage tracking, now handled by useAstroProgress hook
 
   const handleLanguageChange = async (lang: string) => {
     if (lang === language) return;
@@ -132,11 +128,7 @@ export default function Home() {
         setVocabularyItems(uniqueItems); // Hanya tampilkan kotak/kartu unik dari foto saat ini
         
         // Update skor kata yang dipelajari (tambahkan dengan jumlah benda yang baru dideteksi)
-        setTotalWordsLearned((prev) => {
-          const newTotal = prev + uniqueItems.length;
-          localStorage.setItem('vibeLingoProgress', newTotal.toString());
-          return newTotal;
-        });
+        addProgress(uniqueItems.length);
       } else {
         throw new Error('Invalid response format');
       }

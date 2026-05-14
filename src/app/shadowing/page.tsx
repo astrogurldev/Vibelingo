@@ -8,10 +8,11 @@ import { Mic, Square, Play, Sparkles, Flame, ChevronLeft, BookOpen } from 'lucid
 import { AnimatePresence, motion } from 'framer-motion';
 import confetti from 'canvas-confetti';
 import { PREDEFINED_PRACTICES, PracticeLesson } from '@/constants/practices';
+import { useAstroProgress } from '@/hooks/useAstroProgress';
 
 export default function ShadowingLab() {
   const [language, setLanguage] = useState('en');
-  const [totalWordsLearned, setTotalWordsLearned] = useState(0);
+  const { totalWordsLearned, addProgress } = useAstroProgress();
   
   // Shadowing states
   const [activePractice, setActivePractice] = useState<PracticeLesson | null>(null);
@@ -25,11 +26,7 @@ export default function ShadowingLab() {
 
   const recognitionRef = useRef<any>(null);
 
-  // Load progress
-  useEffect(() => {
-    const savedProgress = localStorage.getItem('vibeLingoProgress');
-    if (savedProgress) setTotalWordsLearned(parseInt(savedProgress, 10));
-  }, []);
+  // Removed manual local storage load, now handled by useAstroProgress hook
 
   // Setup SpeechRecognition
   useEffect(() => {
@@ -74,6 +71,28 @@ export default function ShadowingLab() {
     setActivePractice(null);
     stopShadowing();
     window.speechSynthesis.cancel();
+  };
+
+  const handleNextChallenge = () => {
+    if (!activePractice) return;
+    
+    // Get all practices for this language in order
+    const sameLanguagePractices = PREDEFINED_PRACTICES.filter(
+      p => p.languageCode === activePractice.languageCode
+    );
+
+    // Find current index
+    const currentIndex = sameLanguagePractices.findIndex(p => p.id === activePractice.id);
+    
+    // Select the next one sequentially
+    if (currentIndex >= 0 && currentIndex < sameLanguagePractices.length - 1) {
+      const nextPractice = sameLanguagePractices[currentIndex + 1];
+      selectPractice(nextPractice);
+    } else {
+      // If at the end of the list, go back to library
+      alert("🎉 You've completed all current lessons for this language! Returning to library to explore others.");
+      backToLibrary();
+    }
   };
 
   const playTTS = () => {
@@ -163,11 +182,7 @@ export default function ShadowingLab() {
         origin: { y: 0.6 },
         colors: ['#AAF0D1', '#8F00FF', '#ffffff']
       });
-      setTotalWordsLearned(prev => {
-        const newTotal = prev + 5;
-        localStorage.setItem('vibeLingoProgress', newTotal.toString());
-        return newTotal;
-      });
+      addProgress(5);
     }
   };
 
@@ -311,16 +326,28 @@ export default function ShadowingLab() {
 
                 <div className="flex items-center justify-between flex-wrap gap-4">
                   {score !== null ? (
-                    <div className="flex items-center gap-4">
-                      <div className="text-4xl font-black">
-                        <span className={score >= 80 ? 'text-mint drop-shadow-[0_0_10px_rgba(170,240,209,0.8)]' : score >= 50 ? 'text-yellow-400' : 'text-red-400'}>
-                          {score}%
-                        </span>
+                    <div className="flex flex-col gap-4">
+                      <div className="flex items-center gap-4">
+                        <div className="text-4xl font-black">
+                          <span className={score >= 80 ? 'text-mint drop-shadow-[0_0_10px_rgba(170,240,209,0.8)]' : score >= 50 ? 'text-yellow-400' : 'text-red-400'}>
+                            {score}%
+                          </span>
+                        </div>
+                        <div>
+                          <p className="text-white font-medium">Accuracy Score</p>
+                          <p className="text-sm text-gray-400">{score >= 80 ? '+5 Astro-Progress Earned!' : 'Keep practicing to hit 80%+'}</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-white font-medium">Accuracy Score</p>
-                        <p className="text-sm text-gray-400">{score >= 80 ? '+5 Astro-Progress Earned!' : 'Keep practicing to hit 80%+'}</p>
-                      </div>
+                      
+                      {/* Next Challenge Button */}
+                      {score >= 80 && (
+                        <button 
+                          onClick={handleNextChallenge}
+                          className="mt-2 bg-violet hover:bg-violet/90 text-white px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all hover:scale-105 shadow-[0_0_15px_rgba(143,0,255,0.4)] w-fit"
+                        >
+                          Next Challenge <ChevronLeft size={16} className="rotate-180" />
+                        </button>
+                      )}
                     </div>
                   ) : (
                     <div className="flex items-center gap-4">
